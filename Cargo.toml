@@ -1,0 +1,11 @@
+[package]
+name = "ugly_gl"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openxr = "0.16.0"
+glow = "0.11.2"
+anyhow = "1"
+clap = "3.2.22"
+glutin = "0.29.1"
