@@ -1,6 +1,7 @@
 extern crate openxr as xr;
-use anyhow::{Ok, Result};
+use anyhow::{Context, Result};
 use glow::HasContext;
+use glutin::platform::ContextTraitExt;
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -162,18 +163,65 @@ unsafe fn vr_main() -> Result<()> {
 
     // Check what blend mode is valid for this device (opaque vs transparent displays). We'll just
     // take the first one available!
-    let environment_blend_mode = xr_instance
-        .enumerate_environment_blend_modes(xr_system, VIEW_TYPE)?[0];
+    let xr_environment_blend_mode =
+        xr_instance.enumerate_environment_blend_modes(xr_system, VIEW_TYPE)?[0];
 
-    let requirements = xr_instance.graphics_requirements::<xr::OpenGL>(xr_system)?;
+    let xr_opengl_requirements = xr_instance.graphics_requirements::<xr::OpenGL>(xr_system)?;
 
-    dbg!(requirements.min_api_version_supported.major());
-    dbg!(requirements.min_api_version_supported.minor());
-    dbg!(requirements.min_api_version_supported.patch());
+    // Create window
+    let event_loop = glutin::event_loop::EventLoop::new();
+    let window_builder = glutin::window::WindowBuilder::new()
+        .with_title("Hello world!")
+        .with_inner_size(glutin::dpi::LogicalSize::new(1024.0, 768.0));
 
-    dbg!(requirements.max_api_version_supported.major());
-    dbg!(requirements.max_api_version_supported.minor());
-    dbg!(requirements.max_api_version_supported.patch());
+    let windowed_context = glutin::ContextBuilder::new()
+        .build_windowed(window_builder, &event_loop)
+        .unwrap();
+
+    let session_create_info;
+
+    #[cfg(target_os = "windows")]
+    {
+        use glutin::platform::windows::RawHandle;
+        let hwnd = window.hwnd();
+        let raw_handle = window.raw_handle();
+        let hglrc = match RawHandle {
+            RawHandle::Wgl(h) => h,
+            _ => panic!("EGL not supported here"),
+        };
+
+        let hdc = todo!();
+
+        session_create_info = xr::opengl::SessionCreateInfo::Wgl {
+            h_dc: hdc,
+            h_glrc: hglrc,
+        };
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use glutin::platform::unix::RawHandle;
+        use glutin::platform::unix::WindowExtUnix;
+
+        let glx_context = match windowed_context.context().raw_handle() {
+            RawHandle::Glx(g) => g,
+            _ => panic!("EGL not supported here"),
+        };
+
+        let x_display = windowed_context.window().xlib_display().unwrap();
+
+        session_create_info = xr::opengl::SessionCreateInfo::Xlib {
+            x_display,
+            visualid: (),
+            glx_fb_config: (),
+            glx_drawable: (),
+            glx_context: std::mem::transmute(glx_context),
+        };
+    }
+
+    let xr_session = unsafe {
+        xr_instance.create_session::<xr::OpenGL>(xr_system, &session_create_info)?;
+    };
 
     Ok(())
 }
