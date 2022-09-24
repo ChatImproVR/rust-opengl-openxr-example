@@ -1,15 +1,23 @@
+extern crate openxr as xr;
 use anyhow::{Ok, Result};
 use glow::HasContext;
 
 fn main() -> Result<()> {
+    let mut args = std::env::args().skip(1);
+    let use_vr = args.next().is_some();
+
     unsafe {
-        actual_main_lol()?;
+        if use_vr {
+            vr_main()?;
+        } else {
+            desktop_main()?;
+        }
     }
 
     Ok(())
 }
 
-unsafe fn actual_main_lol() -> Result<()> {
+unsafe fn desktop_main() -> Result<()> {
     let event_loop = glutin::event_loop::EventLoop::new();
     let window_builder = glutin::window::WindowBuilder::new()
         .with_title("Hello triangle!")
@@ -117,4 +125,55 @@ unsafe fn actual_main_lol() -> Result<()> {
             _ => (),
         }
     });
+}
+
+unsafe fn vr_main() -> Result<()> {
+    // Load OpenXR from platform-specific location
+    let entry = xr::Entry::load()?;
+
+    // Application info
+    let app_info = xr::ApplicationInfo {
+        application_name: "Ugly OpenGL",
+        application_version: 0,
+        engine_name: "Ugly Engine",
+        engine_version: 0,
+    };
+
+    // Ensure we have the OpenGL extension
+    let available_extensions = entry.enumerate_extensions()?;
+    assert!(available_extensions.khr_opengl_enable);
+
+    // Enable the OpenGL extension
+    let mut extensions = xr::ExtensionSet::default();
+    extensions.khr_opengl_enable = true;
+
+    // Create instance
+    let xr_instance = entry.create_instance(&app_info, &extensions, &[])?;
+    let instance_props = xr_instance.properties().unwrap();
+    println!(
+        "loaded OpenXR runtime: {} {}",
+        instance_props.runtime_name, instance_props.runtime_version
+    );
+
+    // Get headset system
+    let xr_system = xr_instance.system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)?;
+
+    const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
+
+    // Check what blend mode is valid for this device (opaque vs transparent displays). We'll just
+    // take the first one available!
+    let environment_blend_mode = xr_instance
+        .enumerate_environment_blend_modes(xr_system, VIEW_TYPE)?[0];
+
+    let requirements = xr_instance.graphics_requirements::<xr::OpenGL>(xr_system)?;
+
+    dbg!(requirements.min_api_version_supported.major());
+    dbg!(requirements.min_api_version_supported.minor());
+    dbg!(requirements.min_api_version_supported.patch());
+
+    dbg!(requirements.max_api_version_supported.major());
+    dbg!(requirements.max_api_version_supported.minor());
+    dbg!(requirements.max_api_version_supported.patch());
+
+    Ok(())
 }
