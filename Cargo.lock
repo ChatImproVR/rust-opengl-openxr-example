@@ -472,7 +472,7 @@ dependencies = [
  "core-foundation",
  "glutin_egl_sys",
  "glutin_gles2_sys",
- "glutin_glx_sys",
+ "glutin_glx_sys 0.1.8",
  "glutin_wgl_sys",
  "libloading",
  "log",
@@ -512,6 +512,16 @@ name = "glutin_glx_sys"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d93d0575865098580c5b3a423188cd959419912ea60b1e48e8b3b526f6d02468"
+dependencies = [
+ "gl_generator",
+ "x11-dl",
+]
+
+[[package]]
+name = "glutin_glx_sys"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "247e9c35a10e5d69c110dd0b806bbae05d0ef36af998e304fee4e17861ae4bb2"
 dependencies = [
  "gl_generator",
  "x11-dl",
@@ -1218,6 +1228,7 @@ dependencies = [
  "clap",
  "glow",
  "glutin",
+ "glutin_glx_sys 0.2.0",
  "openxr",
 ]
 

@@ -1,7 +1,11 @@
 extern crate openxr as xr;
+use core::ffi::c_int;
+use std::ffi::c_void;
+
 use anyhow::{Context, Result};
 use glow::HasContext;
 use glutin::platform::ContextTraitExt;
+use glutin_glx_sys::glx::Glx;
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -24,13 +28,13 @@ unsafe fn desktop_main() -> Result<()> {
         .with_title("Hello triangle!")
         .with_inner_size(glutin::dpi::LogicalSize::new(1024.0, 768.0));
 
-    let window = glutin::ContextBuilder::new()
+    let glutin_ctx = glutin::ContextBuilder::new()
         .with_vsync(true)
         .build_windowed(window_builder, &event_loop)?
         .make_current()
         .unwrap();
 
-    let gl = glow::Context::from_loader_function(|s| window.get_proc_address(s) as *const _);
+    let gl = glow::Context::from_loader_function(|s| glutin_ctx.get_proc_address(s) as *const _);
 
     let shader_version = "#version 410";
 
@@ -105,16 +109,16 @@ unsafe fn desktop_main() -> Result<()> {
                 return;
             }
             Event::MainEventsCleared => {
-                window.window().request_redraw();
+                glutin_ctx.window().request_redraw();
             }
             Event::RedrawRequested(_) => {
                 gl.clear(glow::COLOR_BUFFER_BIT);
                 gl.draw_arrays(glow::TRIANGLES, 0, 3);
-                window.swap_buffers().unwrap();
+                glutin_ctx.swap_buffers().unwrap();
             }
             Event::WindowEvent { ref event, .. } => match event {
                 WindowEvent::Resized(physical_size) => {
-                    window.resize(*physical_size);
+                    glutin_ctx.resize(*physical_size);
                 }
                 WindowEvent::CloseRequested => {
                     gl.delete_program(program);
@@ -203,25 +207,26 @@ unsafe fn vr_main() -> Result<()> {
         use glutin::platform::unix::RawHandle;
         use glutin::platform::unix::WindowExtUnix;
 
-        let glx_context = match windowed_context.context().raw_handle() {
-            RawHandle::Glx(g) => g,
-            _ => panic!("EGL not supported here"),
-        };
+        let (ctx, window) = windowed_context.split();
+        let ctx = ctx.make_current().unwrap();
+        let glx = Glx::load_with(|addr| ctx.get_proc_address(addr));
 
-        let x_display = windowed_context.window().xlib_display().unwrap();
+        let xlib = glutin_glx_sys::Xlib::open()?;
+
+        let x_display = (xlib.XOpenDisplay)(std::ptr::null());
+        let glx_drawable = glx.GetCurrentDrawable();
+        let glx_context = glx.GetCurrentContext();
 
         session_create_info = xr::opengl::SessionCreateInfo::Xlib {
-            x_display,
-            visualid: (),
-            glx_fb_config: (),
-            glx_drawable: (),
+            x_display: std::mem::transmute(x_display),
+            visualid: 0,
+            glx_fb_config: std::ptr::null::<c_void>() as _,
+            glx_drawable,
             glx_context: std::mem::transmute(glx_context),
         };
     }
 
-    let xr_session = unsafe {
-        xr_instance.create_session::<xr::OpenGL>(xr_system, &session_create_info)?;
-    };
+    let xr_session = xr_instance.create_session::<xr::OpenGL>(xr_system, &session_create_info)?;
 
     Ok(())
 }
