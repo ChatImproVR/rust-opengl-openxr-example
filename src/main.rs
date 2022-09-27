@@ -172,6 +172,8 @@ unsafe fn vr_main() -> Result<()> {
 
     let xr_opengl_requirements = xr_instance.graphics_requirements::<xr::OpenGL>(xr_system)?;
 
+
+
     // Create window
     let event_loop = glutin::event_loop::EventLoop::new();
     let window_builder = glutin::window::WindowBuilder::new()
@@ -182,7 +184,12 @@ unsafe fn vr_main() -> Result<()> {
         .build_windowed(window_builder, &event_loop)
         .unwrap();
 
+    let (ctx, window) = windowed_context.split();
+    let ctx = ctx.make_current().unwrap();
+
     let session_create_info;
+
+    let gl = glow::Context::from_loader_function(|s| ctx.get_proc_address(s) as *const _);
 
     #[cfg(target_os = "windows")]
     {
@@ -207,8 +214,6 @@ unsafe fn vr_main() -> Result<()> {
         use glutin::platform::unix::RawHandle;
         use glutin::platform::unix::WindowExtUnix;
 
-        let (ctx, window) = windowed_context.split();
-        let ctx = ctx.make_current().unwrap();
         let glx = Glx::load_with(|addr| ctx.get_proc_address(addr));
 
         let xlib = glutin_glx_sys::Xlib::open()?;
