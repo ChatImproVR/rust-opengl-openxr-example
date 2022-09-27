@@ -163,16 +163,19 @@ unsafe fn vr_main() -> Result<()> {
     // Get headset system
     let xr_system = xr_instance.system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)?;
 
-    const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
+
+    let xr_view_configs = xr_instance.enumerate_view_configurations(xr_system)?;
+    assert_eq!(xr_view_configs.len(), 1);
+    let xr_view_type = xr_view_configs[0];
+
+    let xr_views = xr_instance.enumerate_view_configuration_views(xr_system, xr_view_type)?;
 
     // Check what blend mode is valid for this device (opaque vs transparent displays). We'll just
     // take the first one available!
     let xr_environment_blend_mode =
-        xr_instance.enumerate_environment_blend_modes(xr_system, VIEW_TYPE)?[0];
+        xr_instance.enumerate_environment_blend_modes(xr_system, xr_view_type)?[0];
 
     let xr_opengl_requirements = xr_instance.graphics_requirements::<xr::OpenGL>(xr_system)?;
-
-
 
     // Create window
     let event_loop = glutin::event_loop::EventLoop::new();
@@ -187,9 +190,10 @@ unsafe fn vr_main() -> Result<()> {
     let (ctx, window) = windowed_context.split();
     let ctx = ctx.make_current().unwrap();
 
-    let session_create_info;
-
+    // Load OpenGL
     let gl = glow::Context::from_loader_function(|s| ctx.get_proc_address(s) as *const _);
+
+    let session_create_info;
 
     #[cfg(target_os = "windows")]
     {
@@ -211,9 +215,7 @@ unsafe fn vr_main() -> Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        use glutin::platform::unix::RawHandle;
-        use glutin::platform::unix::WindowExtUnix;
-
+        // See https://gitlab.freedesktop.org/monado/demos/openxr-simple-example/-/blob/master/main.c
         let glx = Glx::load_with(|addr| ctx.get_proc_address(addr));
 
         let xlib = glutin_glx_sys::Xlib::open()?;
@@ -231,7 +233,50 @@ unsafe fn vr_main() -> Result<()> {
         };
     }
 
+    // Create session
     let xr_session = xr_instance.create_session::<xr::OpenGL>(xr_system, &session_create_info)?;
+
+    // Determine swapchain formats
+    let xr_swapchain_formats = xr_session.0.enumerate_swapchain_formats()?;
+
+    let color_swapchain_format = xr_swapchain_formats
+        .iter()
+        .copied()
+        .find(|&f| f == glow::SRGB8_ALPHA8)
+        .unwrap_or(xr_swapchain_formats[0]);
+
+    /*
+    let depth_swapchain_format = xr_swapchain_formats
+        .iter()
+        .copied()
+        .find(|&f| f == glow::DEPTH_COMPONENT16)
+        .expect("No suitable depth format found");
+    */
+
+    // Create color swapchain
+    let mut xr_swapchain_images = vec![];
+
+    for &xr_view in &xr_views {
+        let xr_swapchain_create_info = xr::SwapchainCreateInfo::<xr::OpenGL> {
+            create_flags: xr::SwapchainCreateFlags::EMPTY,
+            usage_flags: xr::SwapchainUsageFlags::SAMPLED | xr::SwapchainUsageFlags::COLOR_ATTACHMENT,
+            format: color_swapchain_format,
+            sample_count: xr_view.recommended_swapchain_sample_count,
+            width: xr_view.recommended_image_rect_width,
+            height: xr_view.recommended_image_rect_height,
+            face_count: 1,
+            array_size: 1,
+            mip_count: 1,
+        };
+
+        let xr_swapchain = xr_session.0.create_swapchain(&xr_swapchain_create_info)?;
+
+        let images = xr_swapchain.enumerate_images()?;
+
+        xr_swapchain_images.push(images);
+    }
+
+    dbg!(&xr_swapchain_images);
 
     Ok(())
 }
