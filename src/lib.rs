@@ -1,7 +1,6 @@
 extern crate openxr as xr;
 use anyhow::Result;
 use glutin::{window::Window, ContextWrapper, PossiblyCurrent};
-use std::ffi::c_void;
 use xr::opengl::SessionCreateInfo;
 
 /// Given a `glutin` Context, and `winit` Window, returns an appropriate SessionCreateInfo for the target OS
@@ -26,12 +25,13 @@ pub fn session_create_info<T>(
         Ok(SessionCreateInfo::Windows {
             h_dc: std::mem::transmute(h_dc),
             h_glrc,
-        });
+        })
     }
 
     #[cfg(target_os = "linux")]
     unsafe {
         // See https://gitlab.freedesktop.org/monado/demos/openxr-simple-example/-/blob/master/main.c
+        use std::ffi::c_void;
         use glutin_glx_sys::glx::Glx;
         let glx = Glx::load_with(|addr| ctx.get_proc_address(addr));
 
