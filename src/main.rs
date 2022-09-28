@@ -254,8 +254,10 @@ unsafe fn vr_main() -> Result<()> {
     */
 
     // Create color swapchain
-    let mut xr_swapchain_images = vec![];
+    let mut swapchain_images = vec![];
+    let mut xr_swapchains = vec![];
 
+    // Set up swapchains and get images
     for &xr_view in &xr_views {
         let xr_swapchain_create_info = xr::SwapchainCreateInfo::<xr::OpenGL> {
             create_flags: xr::SwapchainCreateFlags::EMPTY,
@@ -273,10 +275,32 @@ unsafe fn vr_main() -> Result<()> {
 
         let images = xr_swapchain.enumerate_images()?;
 
-        xr_swapchain_images.push(images);
+        swapchain_images.push(images);
+        xr_swapchains.push(xr_swapchain);
     }
 
-    dbg!(&xr_swapchain_images);
+    // Set up projection views
+    let mut xr_projection_views = vec![];
+    for (&xr_view, xr_swapchain) in xr_views.iter().zip(&xr_swapchains) {
+        // Set up projection view
+        let xr_sub_image = xr::SwapchainSubImage::<xr::OpenGL>::new()
+            .swapchain(xr_swapchain)
+            .image_array_index(0)
+            .image_rect(xr::Rect2Di {
+                offset: xr::Offset2Di {
+                    x: 0,
+                    y: 0,
+                },
+                extent: xr::Extent2Di {
+                    width: xr_view.recommended_image_rect_width as i32,
+                    height: xr_view.recommended_image_rect_height as i32,
+                }
+            });
+
+        let xr_proj_view = xr::CompositionLayerProjectionView::<xr::OpenGL>::new().sub_image(xr_sub_image);
+
+        xr_projection_views.push(xr_proj_view);
+    }
 
     Ok(())
 }
