@@ -4,7 +4,6 @@ use std::ffi::c_void;
 
 use anyhow::{bail, format_err, Result};
 use gl::HasContext;
-use glutin_glx_sys::glx::Glx;
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -112,7 +111,11 @@ unsafe fn desktop_main() -> Result<()> {
 
 unsafe fn vr_main() -> Result<()> {
     // Load OpenXR from platform-specific location
+    #[cfg(target_os = "linux")]
     let entry = xr::Entry::load()?;
+
+    #[cfg(target_os = "windows")]
+    let entry = xr::Entry::linked();
 
     // Application info
     let app_info = xr::ApplicationInfo {
@@ -159,13 +162,13 @@ unsafe fn vr_main() -> Result<()> {
     let event_loop = glutin::event_loop::EventLoop::new();
     let window_builder = glutin::window::WindowBuilder::new()
         .with_title("Hello world!")
-        .with_inner_size(glutin::dpi::LogicalSize::new(1024.0, 768.0));
+        .with_inner_size(glutin::dpi::LogicalSize::new(1024.0f32, 768.0));
 
     let windowed_context = glutin::ContextBuilder::new()
         .build_windowed(window_builder, &event_loop)
         .unwrap();
 
-    let (ctx, _window) = windowed_context.split();
+    let (ctx, window) = windowed_context.split();
     let ctx = ctx.make_current().unwrap();
 
     // Load OpenGL
@@ -176,24 +179,27 @@ unsafe fn vr_main() -> Result<()> {
     #[cfg(target_os = "windows")]
     {
         use glutin::platform::windows::RawHandle;
+        use glutin::platform::windows::WindowExtWindows;
+        use glutin::platform::ContextTraitExt;
+
         let hwnd = window.hwnd();
-        let raw_handle = window.raw_handle();
-        let hglrc = match RawHandle {
+        let h_glrc = match ctx.raw_handle() {
             RawHandle::Wgl(h) => h,
             _ => panic!("EGL not supported here"),
         };
 
-        let hdc = todo!();
+        let h_dc = windows_sys::Win32::Graphics::Gdi::GetDC(hwnd);
 
-        session_create_info = xr::opengl::SessionCreateInfo::Wgl {
-            h_dc: hdc,
-            h_glrc: hglrc,
+        session_create_info = xr::opengl::SessionCreateInfo::Windows {
+            h_dc: std::mem::transmute(h_dc),
+            h_glrc,
         };
     }
 
     #[cfg(target_os = "linux")]
     {
         // See https://gitlab.freedesktop.org/monado/demos/openxr-simple-example/-/blob/master/main.c
+        use glutin_glx_sys::glx::Glx;
         let glx = Glx::load_with(|addr| ctx.get_proc_address(addr));
 
         let xlib = glutin_glx_sys::Xlib::open()?;
