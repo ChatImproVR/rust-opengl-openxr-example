@@ -18,6 +18,6 @@
 * For desktop: `cargo run --release` 
 
 # TODO
+- [x] Create a library abstracting away the platform-dependent parts of this (`library` branch)
 - [ ] Use multiview rendering
 - [ ] Display a floating cube (on a new branch `cube`)
-- [ ] Create a library abstracting away the platform-dependent parts of this
