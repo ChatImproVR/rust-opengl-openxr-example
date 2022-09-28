@@ -1,6 +1,5 @@
 extern crate glow as gl;
 extern crate openxr as xr;
-use std::ffi::c_void;
 
 use anyhow::{bail, format_err, Result};
 use gl::HasContext;
@@ -174,48 +173,7 @@ unsafe fn vr_main() -> Result<()> {
     // Load OpenGL
     let gl = gl::Context::from_loader_function(|s| ctx.get_proc_address(s) as *const _);
 
-    let session_create_info;
-
-    #[cfg(target_os = "windows")]
-    {
-        use glutin::platform::windows::RawHandle;
-        use glutin::platform::windows::WindowExtWindows;
-        use glutin::platform::ContextTraitExt;
-
-        let hwnd = window.hwnd();
-        let h_glrc = match ctx.raw_handle() {
-            RawHandle::Wgl(h) => h,
-            _ => panic!("EGL not supported here"),
-        };
-
-        let h_dc = windows_sys::Win32::Graphics::Gdi::GetDC(hwnd);
-
-        session_create_info = xr::opengl::SessionCreateInfo::Windows {
-            h_dc: std::mem::transmute(h_dc),
-            h_glrc,
-        };
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        // See https://gitlab.freedesktop.org/monado/demos/openxr-simple-example/-/blob/master/main.c
-        use glutin_glx_sys::glx::Glx;
-        let glx = Glx::load_with(|addr| ctx.get_proc_address(addr));
-
-        let xlib = glutin_glx_sys::Xlib::open()?;
-
-        let x_display = (xlib.XOpenDisplay)(std::ptr::null());
-        let glx_drawable = glx.GetCurrentDrawable();
-        let glx_context = glx.GetCurrentContext();
-
-        session_create_info = xr::opengl::SessionCreateInfo::Xlib {
-            x_display: std::mem::transmute(x_display),
-            visualid: 0,
-            glx_fb_config: std::ptr::null::<c_void>() as _,
-            glx_drawable,
-            glx_context: std::mem::transmute(glx_context),
-        };
-    }
+    let session_create_info = glutin_openxr_opengl_helper::session_create_info(&ctx, &window)?;
 
     // Create vertex array
     let vertex_array = gl
