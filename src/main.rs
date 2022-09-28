@@ -259,27 +259,6 @@ unsafe fn vr_main() -> Result<()> {
         xr_swapchains.push(xr_swapchain);
     }
 
-    // Set up projection views
-    let mut xr_projection_views = vec![];
-    for (&xr_view, xr_swapchain) in xr_views.iter().zip(&xr_swapchains) {
-        // Set up projection view
-        let xr_sub_image = xr::SwapchainSubImage::<xr::OpenGL>::new()
-            .swapchain(xr_swapchain)
-            .image_array_index(0)
-            .image_rect(xr::Rect2Di {
-                offset: xr::Offset2Di { x: 0, y: 0 },
-                extent: xr::Extent2Di {
-                    width: xr_view.recommended_image_rect_width as i32,
-                    height: xr_view.recommended_image_rect_height as i32,
-                },
-            });
-
-        let xr_proj_view =
-            xr::CompositionLayerProjectionView::<xr::OpenGL>::new().sub_image(xr_sub_image);
-
-        xr_projection_views.push(xr_proj_view);
-    }
-
     // Create OpenGL framebuffers
     let mut gl_framebuffers = vec![];
     for _ in &xr_views {
@@ -338,7 +317,7 @@ unsafe fn vr_main() -> Result<()> {
 
         // Get OpenXR Views
         // TODO: Do this as close to render-time as possible!!
-        let (_xr_view_state_flags, _xr_view_poses) = xr_session.locate_views(
+        let (_xr_view_state_flags, xr_view_poses) = xr_session.locate_views(
             xr_view_type,
             frame_state.predicted_display_time,
             &xr_play_space,
@@ -392,13 +371,40 @@ unsafe fn vr_main() -> Result<()> {
             xr_swapchains[view_idx].release_image()?;
         }
 
+        // Set up projection views
+        let mut xr_projection_views = vec![];
+        for view_idx in 0..xr_views.len() {
+            // Set up projection view
+            let xr_sub_image = xr::SwapchainSubImage::<xr::OpenGL>::new()
+                .swapchain(&xr_swapchains[view_idx])
+                .image_array_index(0)
+                .image_rect(xr::Rect2Di {
+                    offset: xr::Offset2Di { x: 0, y: 0 },
+                    extent: xr::Extent2Di {
+                        width: xr_views[view_idx].recommended_image_rect_width as i32,
+                        height: xr_views[view_idx].recommended_image_rect_height as i32,
+                    },
+                });
+
+            let xr_proj_view =
+                xr::CompositionLayerProjectionView::<xr::OpenGL>::new()
+                    .pose(xr_view_poses[view_idx].pose)
+                    .fov(xr_view_poses[view_idx].fov)
+                    .sub_image(xr_sub_image);
+
+            xr_projection_views.push(xr_proj_view);
+        }
+
+
+        let layers = xr::CompositionLayerProjection::new()
+            .space(&xr_play_space)
+            .views(&xr_projection_views);
+
         xr_frame_stream.end(
             frame_state.predicted_display_time,
             xr_environment_blend_mode,
-            &[],
+            &[&layers],
         )?;
-
-        println!("Do thing");
     }
 
     Ok(())
