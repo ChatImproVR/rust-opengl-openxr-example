@@ -66,10 +66,13 @@ unsafe fn desktop_main() -> Result<()> {
         .expect("Cannot create vertex array");
     gl.bind_vertex_array(Some(vertex_array));
 
-let program = compile_glsl_program(&gl, &[
-        (glow::VERTEX_SHADER, VERTEX_SHADER_SOURCE),
-        (glow::FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE),
-    ])?;
+    let program = compile_glsl_program(
+        &gl,
+        &[
+            (glow::VERTEX_SHADER, VERTEX_SHADER_SOURCE),
+            (glow::FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE),
+        ],
+    )?;
 
     gl.use_program(Some(program));
     gl.clear_color(0.1, 0.2, 0.3, 1.0);
@@ -210,10 +213,11 @@ unsafe fn vr_main() -> Result<()> {
     }
 
     // Create session
-    let xr_session = xr_instance.create_session::<xr::OpenGL>(xr_system, &session_create_info)?;
+    let (xr_session, mut xr_frame_waiter, xr_frame_stream) =
+        xr_instance.create_session::<xr::OpenGL>(xr_system, &session_create_info)?;
 
     // Determine swapchain formats
-    let xr_swapchain_formats = xr_session.0.enumerate_swapchain_formats()?;
+    let xr_swapchain_formats = xr_session.enumerate_swapchain_formats()?;
 
     let color_swapchain_format = xr_swapchain_formats
         .iter()
@@ -248,7 +252,7 @@ unsafe fn vr_main() -> Result<()> {
             mip_count: 1,
         };
 
-        let xr_swapchain = xr_session.0.create_swapchain(&xr_swapchain_create_info)?;
+        let xr_swapchain = xr_session.create_swapchain(&xr_swapchain_create_info)?;
 
         let images = xr_swapchain.enumerate_images()?;
 
@@ -284,7 +288,53 @@ unsafe fn vr_main() -> Result<()> {
     }
 
     // Compile shaders
+    let gl_program = compile_glsl_program(
+        &gl,
+        &[
+            (glow::VERTEX_SHADER, VERTEX_SHADER_SOURCE),
+            (glow::FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE),
+        ],
+    )?;
 
+    let mut xr_event_buf = xr::EventDataBuffer::default();
+
+    'main: loop {
+        // Handle OpenXR Events
+        while let Some(event) = xr_instance.poll_event(&mut xr_event_buf)? {
+            match event {
+                xr::Event::InstanceLossPending(_) => break 'main,
+                xr::Event::SessionStateChanged(delta) => {
+                    match delta.state() {
+                        xr::SessionState::IDLE | xr::SessionState::UNKNOWN => {
+                            continue 'main;
+                        }
+                        //xr::SessionState::FOCUSED | xr::SessionState::SYNCHRONIZED | xr::SessionState::VISIBLE => (),
+                        xr::SessionState::STOPPING => {
+                            xr_session.end()?;
+                            break 'main;
+                        }
+                        xr::SessionState::LOSS_PENDING | xr::SessionState::EXITING => {
+                            // ???
+                        }
+                        xr::SessionState::READY => {
+                            dbg!(delta.state());
+                            xr_session.begin(xr_view_type)?;
+                        }
+                        _ => (),
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        // --- Wait for our turn to do head-pose dependent computation and render a frame
+        let frame_state = xr_frame_waiter.wait()?;
+        dbg!(frame_state);
+
+        xr_frame_stream.end(frame_state.predicted_display_time, xr_environment_blend_mode, layers);
+
+        println!("Do thing");
+    }
 
     Ok(())
 }
@@ -314,7 +364,7 @@ fn compile_glsl_program(gl: &gl::Context, sources: &[(u32, &str)]) -> Result<gl:
             gl.attach_shader(program, shader);
 
             shaders.push(shader);
-        };
+        }
 
         gl.link_program(program);
 
