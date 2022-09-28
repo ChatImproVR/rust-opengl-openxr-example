@@ -1,11 +1,9 @@
 extern crate glow as gl;
 extern crate openxr as xr;
-use core::ffi::c_int;
 use std::ffi::c_void;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, format_err, Result};
 use gl::HasContext;
-use glutin::platform::ContextTraitExt;
 use glutin_glx_sys::glx::Glx;
 
 fn main() -> Result<()> {
@@ -59,7 +57,7 @@ unsafe fn desktop_main() -> Result<()> {
         .make_current()
         .unwrap();
 
-    let gl = glow::Context::from_loader_function(|s| glutin_ctx.get_proc_address(s) as *const _);
+    let gl = gl::Context::from_loader_function(|s| glutin_ctx.get_proc_address(s) as *const _);
 
     let vertex_array = gl
         .create_vertex_array()
@@ -69,8 +67,8 @@ unsafe fn desktop_main() -> Result<()> {
     let program = compile_glsl_program(
         &gl,
         &[
-            (glow::VERTEX_SHADER, VERTEX_SHADER_SOURCE),
-            (glow::FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE),
+            (gl::VERTEX_SHADER, VERTEX_SHADER_SOURCE),
+            (gl::FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE),
         ],
     )?;
 
@@ -92,8 +90,8 @@ unsafe fn desktop_main() -> Result<()> {
                 glutin_ctx.window().request_redraw();
             }
             Event::RedrawRequested(_) => {
-                gl.clear(glow::COLOR_BUFFER_BIT);
-                gl.draw_arrays(glow::TRIANGLES, 0, 3);
+                gl.clear(gl::COLOR_BUFFER_BIT);
+                gl.draw_arrays(gl::TRIANGLES, 0, 3);
                 glutin_ctx.swap_buffers().unwrap();
             }
             Event::WindowEvent { ref event, .. } => match event {
@@ -154,7 +152,8 @@ unsafe fn vr_main() -> Result<()> {
     let xr_environment_blend_mode =
         xr_instance.enumerate_environment_blend_modes(xr_system, xr_view_type)?[0];
 
-    let xr_opengl_requirements = xr_instance.graphics_requirements::<xr::OpenGL>(xr_system)?;
+    // TODO: Check this???
+    let _xr_opengl_requirements = xr_instance.graphics_requirements::<xr::OpenGL>(xr_system)?;
 
     // Create window
     let event_loop = glutin::event_loop::EventLoop::new();
@@ -166,11 +165,11 @@ unsafe fn vr_main() -> Result<()> {
         .build_windowed(window_builder, &event_loop)
         .unwrap();
 
-    let (ctx, window) = windowed_context.split();
+    let (ctx, _window) = windowed_context.split();
     let ctx = ctx.make_current().unwrap();
 
     // Load OpenGL
-    let gl = glow::Context::from_loader_function(|s| ctx.get_proc_address(s) as *const _);
+    let gl = gl::Context::from_loader_function(|s| ctx.get_proc_address(s) as *const _);
 
     let session_create_info;
 
@@ -213,7 +212,7 @@ unsafe fn vr_main() -> Result<()> {
     }
 
     // Create session
-    let (xr_session, mut xr_frame_waiter, xr_frame_stream) =
+    let (xr_session, mut xr_frame_waiter, mut xr_frame_stream) =
         xr_instance.create_session::<xr::OpenGL>(xr_system, &session_create_info)?;
 
     // Determine swapchain formats
@@ -222,7 +221,7 @@ unsafe fn vr_main() -> Result<()> {
     let color_swapchain_format = xr_swapchain_formats
         .iter()
         .copied()
-        .find(|&f| f == glow::SRGB8_ALPHA8)
+        .find(|&f| f == gl::SRGB8_ALPHA8)
         .unwrap_or(xr_swapchain_formats[0]);
 
     /*
@@ -284,17 +283,23 @@ unsafe fn vr_main() -> Result<()> {
     // Create OpenGL framebuffers
     let mut gl_framebuffers = vec![];
     for _ in &xr_views {
-        gl_framebuffers.push(gl.create_framebuffer());
+        gl_framebuffers.push(
+            gl.create_framebuffer()
+                .map_err(|s| format_err!("Failed to create framebuffer; {}", s))?,
+        );
     }
 
     // Compile shaders
     let gl_program = compile_glsl_program(
         &gl,
         &[
-            (glow::VERTEX_SHADER, VERTEX_SHADER_SOURCE),
-            (glow::FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE),
+            (gl::VERTEX_SHADER, VERTEX_SHADER_SOURCE),
+            (gl::FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE),
         ],
     )?;
+
+    let xr_play_space =
+        xr_session.create_reference_space(xr::ReferenceSpaceType::LOCAL, xr::Posef::IDENTITY)?;
 
     let mut xr_event_buf = xr::EventDataBuffer::default();
 
@@ -331,7 +336,67 @@ unsafe fn vr_main() -> Result<()> {
         let frame_state = xr_frame_waiter.wait()?;
         dbg!(frame_state);
 
-        xr_frame_stream.end(frame_state.predicted_display_time, xr_environment_blend_mode, layers);
+        // Get OpenXR Views
+        // TODO: Do this as close to render-time as possible!!
+        let (_xr_view_state_flags, _xr_view_poses) = xr_session.locate_views(
+            xr_view_type,
+            frame_state.predicted_display_time,
+            &xr_play_space,
+        )?;
+
+        // Signal to OpenXR that we are beginning graphics work
+        xr_frame_stream.begin()?;
+
+        for view_idx in 0..xr_views.len() {
+            // Acquire image
+            let xr_swapchain_img_idx = xr_swapchains[view_idx].acquire_image()?;
+            xr_swapchains[view_idx].wait_image(xr::Duration::from_nanos(1_000_000_000_000))?;
+
+            // Bind framebuffer
+            gl.bind_framebuffer(gl::FRAMEBUFFER, Some(gl_framebuffers[view_idx]));
+
+            // Set scissor and viewport
+            let view = xr_views[view_idx];
+            let w = view.recommended_image_rect_width as i32;
+            let h = view.recommended_image_rect_height as i32;
+            gl.viewport(0, 0, w, h);
+            gl.scissor(0, 0, w, h);
+
+            // Set the texture as the render target
+            let texture = swapchain_images[view_idx][xr_swapchain_img_idx as usize];
+            let texture = std::num::NonZeroU32::new(texture).unwrap();
+
+            /// Workaround for glow having not released https://github.com/grovesNL/glow/issues/210
+            pub struct NativeTextureFuckery(pub std::num::NonZeroU32);
+
+            let texture: glow::NativeTexture = std::mem::transmute(NativeTextureFuckery(texture));
+
+            gl.framebuffer_texture_2d(
+                gl::FRAMEBUFFER,
+                gl::COLOR_ATTACHMENT0,
+                gl::TEXTURE_2D,
+                Some(texture),
+                0,
+            );
+
+            // Draw!
+            gl.use_program(Some(gl_program));
+            gl.clear_color(0.1, 0.2, 0.3, 1.0);
+            gl.clear(gl::COLOR_BUFFER_BIT);
+            gl.draw_arrays(gl::TRIANGLES, 0, 3);
+        
+            // Unbind framebuffer
+            gl.bind_framebuffer(gl::FRAMEBUFFER, None);
+
+            // Release image
+            xr_swapchains[view_idx].release_image()?;
+        }
+
+        xr_frame_stream.end(
+            frame_state.predicted_display_time,
+            xr_environment_blend_mode,
+            &[],
+        )?;
 
         println!("Do thing");
     }
