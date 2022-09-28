@@ -1,9 +1,10 @@
+extern crate glow as gl;
 extern crate openxr as xr;
 use core::ffi::c_int;
 use std::ffi::c_void;
 
-use anyhow::{Context, Result};
-use glow::HasContext;
+use anyhow::{bail, Context, Result};
+use gl::HasContext;
 use glutin::platform::ContextTraitExt;
 use glutin_glx_sys::glx::Glx;
 
@@ -22,6 +23,30 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+const VERTEX_SHADER_SOURCE: &str = r#"
+    #version 450
+    const vec2 verts[3] = vec2[3](
+        vec2(0.5f, 1.0f),
+        vec2(0.0f, 0.0f),
+        vec2(1.0f, 0.0f)
+    );
+    out vec2 vert;
+    void main() {
+        vert = verts[gl_VertexID];
+        gl_Position = vec4(vert - 0.5, 0.0, 1.0);
+    }
+"#;
+
+const FRAGMENT_SHADER_SOURCE: &str = r#"
+    #version 450
+    precision mediump float;
+    in vec2 vert;
+    out vec4 color;
+    void main() {
+        color = vec4(vert, 0.5, 1.0);
+    }
+"#;
+
 unsafe fn desktop_main() -> Result<()> {
     let event_loop = glutin::event_loop::EventLoop::new();
     let window_builder = glutin::window::WindowBuilder::new()
@@ -36,63 +61,15 @@ unsafe fn desktop_main() -> Result<()> {
 
     let gl = glow::Context::from_loader_function(|s| glutin_ctx.get_proc_address(s) as *const _);
 
-    let shader_version = "#version 410";
-
     let vertex_array = gl
         .create_vertex_array()
         .expect("Cannot create vertex array");
     gl.bind_vertex_array(Some(vertex_array));
 
-    let program = gl.create_program().expect("Cannot create program");
-
-    let (vertex_shader_source, fragment_shader_source) = (
-        r#"const vec2 verts[3] = vec2[3](
-                vec2(0.5f, 1.0f),
-                vec2(0.0f, 0.0f),
-                vec2(1.0f, 0.0f)
-            );
-            out vec2 vert;
-            void main() {
-                vert = verts[gl_VertexID];
-                gl_Position = vec4(vert - 0.5, 0.0, 1.0);
-            }"#,
-        r#"precision mediump float;
-            in vec2 vert;
-            out vec4 color;
-            void main() {
-                color = vec4(vert, 0.5, 1.0);
-            }"#,
-    );
-
-    let shader_sources = [
-        (glow::VERTEX_SHADER, vertex_shader_source),
-        (glow::FRAGMENT_SHADER, fragment_shader_source),
-    ];
-
-    let mut shaders = Vec::with_capacity(shader_sources.len());
-
-    for (shader_type, shader_source) in shader_sources.iter() {
-        let shader = gl
-            .create_shader(*shader_type)
-            .expect("Cannot create shader");
-        gl.shader_source(shader, &format!("{}\n{}", shader_version, shader_source));
-        gl.compile_shader(shader);
-        if !gl.get_shader_compile_status(shader) {
-            panic!("{}", gl.get_shader_info_log(shader));
-        }
-        gl.attach_shader(program, shader);
-        shaders.push(shader);
-    }
-
-    gl.link_program(program);
-    if !gl.get_program_link_status(program) {
-        panic!("{}", gl.get_program_info_log(program));
-    }
-
-    for shader in shaders {
-        gl.detach_shader(program, shader);
-        gl.delete_shader(shader);
-    }
+let program = compile_glsl_program(&gl, &[
+        (glow::VERTEX_SHADER, VERTEX_SHADER_SOURCE),
+        (glow::FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE),
+    ])?;
 
     gl.use_program(Some(program));
     gl.clear_color(0.1, 0.2, 0.3, 1.0);
@@ -162,7 +139,6 @@ unsafe fn vr_main() -> Result<()> {
 
     // Get headset system
     let xr_system = xr_instance.system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)?;
-
 
     let xr_view_configs = xr_instance.enumerate_view_configurations(xr_system)?;
     assert_eq!(xr_view_configs.len(), 1);
@@ -261,7 +237,8 @@ unsafe fn vr_main() -> Result<()> {
     for &xr_view in &xr_views {
         let xr_swapchain_create_info = xr::SwapchainCreateInfo::<xr::OpenGL> {
             create_flags: xr::SwapchainCreateFlags::EMPTY,
-            usage_flags: xr::SwapchainUsageFlags::SAMPLED | xr::SwapchainUsageFlags::COLOR_ATTACHMENT,
+            usage_flags: xr::SwapchainUsageFlags::SAMPLED
+                | xr::SwapchainUsageFlags::COLOR_ATTACHMENT,
             format: color_swapchain_format,
             sample_count: xr_view.recommended_swapchain_sample_count,
             width: xr_view.recommended_image_rect_width,
@@ -287,20 +264,69 @@ unsafe fn vr_main() -> Result<()> {
             .swapchain(xr_swapchain)
             .image_array_index(0)
             .image_rect(xr::Rect2Di {
-                offset: xr::Offset2Di {
-                    x: 0,
-                    y: 0,
-                },
+                offset: xr::Offset2Di { x: 0, y: 0 },
                 extent: xr::Extent2Di {
                     width: xr_view.recommended_image_rect_width as i32,
                     height: xr_view.recommended_image_rect_height as i32,
-                }
+                },
             });
 
-        let xr_proj_view = xr::CompositionLayerProjectionView::<xr::OpenGL>::new().sub_image(xr_sub_image);
+        let xr_proj_view =
+            xr::CompositionLayerProjectionView::<xr::OpenGL>::new().sub_image(xr_sub_image);
 
         xr_projection_views.push(xr_proj_view);
     }
 
+    // Create OpenGL framebuffers
+    let mut gl_framebuffers = vec![];
+    for _ in &xr_views {
+        gl_framebuffers.push(gl.create_framebuffer());
+    }
+
+    // Compile shaders
+
+
     Ok(())
+}
+
+/// Compiles (*_SHADER, <source>) into a shader program for OpenGL
+fn compile_glsl_program(gl: &gl::Context, sources: &[(u32, &str)]) -> Result<gl::Program> {
+    // Compile default shaders
+    unsafe {
+        let program = gl.create_program().expect("Cannot create program");
+
+        let mut shaders = vec![];
+
+        for (stage, shader_source) in sources {
+            let shader = gl.create_shader(*stage).expect("Cannot create shader");
+
+            gl.shader_source(shader, shader_source);
+
+            gl.compile_shader(shader);
+
+            if !gl.get_shader_compile_status(shader) {
+                bail!(
+                    "Failed to compile shader;\n{}",
+                    gl.get_shader_info_log(shader)
+                );
+            }
+
+            gl.attach_shader(program, shader);
+
+            shaders.push(shader);
+        };
+
+        gl.link_program(program);
+
+        if !gl.get_program_link_status(program) {
+            bail!("{}", gl.get_program_info_log(program));
+        }
+
+        for shader in shaders {
+            gl.detach_shader(program, shader);
+            gl.delete_shader(shader);
+        }
+
+        Ok(program)
+    }
 }
