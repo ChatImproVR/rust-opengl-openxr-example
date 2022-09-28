@@ -211,6 +211,12 @@ unsafe fn vr_main() -> Result<()> {
         };
     }
 
+    // Create vertex array
+    let vertex_array = gl
+        .create_vertex_array()
+        .expect("Cannot create vertex array");
+    gl.bind_vertex_array(Some(vertex_array));
+
     // Create session
     let (xr_session, mut xr_frame_waiter, mut xr_frame_stream) =
         xr_instance.create_session::<xr::OpenGL>(xr_system, &session_create_info)?;
