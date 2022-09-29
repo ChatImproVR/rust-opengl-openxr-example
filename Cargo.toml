@@ -16,6 +16,7 @@ windows-sys = { version = "0.42.0", features = ["Win32_Graphics_Gdi", "Win32_Fou
 
 [dev-dependencies]
 glow = "0.11.2"
+nalgebra = "0.31.1"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 openxr = { version = "0.16.0", features = ["loaded"] }
