@@ -2,6 +2,7 @@ extern crate openxr as xr;
 use anyhow::Result;
 use glutin::{window::Window, ContextWrapper, PossiblyCurrent};
 use xr::opengl::SessionCreateInfo;
+pub mod desktop_camera;
 
 /// Given a `glutin` Context, and `winit` Window, returns an appropriate SessionCreateInfo for the target OS
 pub fn session_create_info<T>(

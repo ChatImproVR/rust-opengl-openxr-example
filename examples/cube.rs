@@ -3,7 +3,10 @@ extern crate openxr as xr;
 
 use anyhow::{bail, format_err, Result};
 use gl::HasContext;
+use glutin::dpi::PhysicalSize;
 use nalgebra::{Matrix4, Quaternion, Unit, UnitQuaternion, Vector3};
+
+use glutin_openxr_opengl_helper::desktop_camera::Camera;
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -34,9 +37,7 @@ const VERTEX_SHADER_SOURCE: &str = r#"
     out vec2 vert;
     void main() {
         vert = verts[gl_VertexID];
-        //gl_Position = proj * view * vec4(vert - 0.5, -1.0, 1.0);
-
-        gl_Position = vec4(vert - 0.5, 0.0, 1.0);
+        gl_Position = proj * view * vec4(vert - 0.5, -1.0, 1.0);
     }
 "#;
 
@@ -88,6 +89,10 @@ unsafe fn desktop_main() -> Result<()> {
     use glutin::event::{Event, WindowEvent};
     use glutin::event_loop::ControlFlow;
 
+    let mut camera = Camera::default();
+
+    let mut physical_size = PhysicalSize::new(0, 0);
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
@@ -98,21 +103,39 @@ unsafe fn desktop_main() -> Result<()> {
                 glutin_ctx.window().request_redraw();
             }
             Event::RedrawRequested(_) => {
+                gl.uniform_matrix_4_f32_slice(
+                    gl.get_uniform_location(program, "view").as_ref(),
+                    false,
+                    camera.view().as_slice(),
+                );
+
+                gl.uniform_matrix_4_f32_slice(
+                    gl.get_uniform_location(program, "proj").as_ref(),
+                    false,
+                    camera
+                        .projection(physical_size.width as f32, physical_size.height as f32)
+                        .as_slice(),
+                );
+
                 gl.clear(gl::COLOR_BUFFER_BIT);
                 gl.draw_arrays(gl::TRIANGLES, 0, 3);
                 glutin_ctx.swap_buffers().unwrap();
             }
-            Event::WindowEvent { ref event, .. } => match event {
-                WindowEvent::Resized(physical_size) => {
-                    glutin_ctx.resize(*physical_size);
+            Event::WindowEvent { ref event, .. } => {
+                camera.handle_events(event);
+                match event {
+                    WindowEvent::Resized(ph) => {
+                        physical_size = *ph;
+                        glutin_ctx.resize(*ph);
+                    }
+                    WindowEvent::CloseRequested => {
+                        gl.delete_program(program);
+                        gl.delete_vertex_array(vertex_array);
+                        *control_flow = ControlFlow::Exit
+                    }
+                    _ => (),
                 }
-                WindowEvent::CloseRequested => {
-                    gl.delete_program(program);
-                    gl.delete_vertex_array(vertex_array);
-                    *control_flow = ControlFlow::Exit
-                }
-                _ => (),
-            },
+            }
             _ => (),
         }
     });
@@ -206,10 +229,10 @@ unsafe fn vr_main() -> Result<()> {
 
     /*
     let depth_swapchain_format = xr_swapchain_formats
-        .iter()
-        .copied()
-        .find(|&f| f == glow::DEPTH_COMPONENT16)
-        .expect("No suitable depth format found");
+    .iter()
+    .copied()
+    .find(|&f| f == glow::DEPTH_COMPONENT16)
+    .expect("No suitable depth format found");
     */
 
     // Create color swapchain
@@ -491,13 +514,13 @@ pub fn projection_from_fov(fov: &xr::Fovf, near: f32, far: f32) -> Matrix4<f32> 
 
     let a31 = (tan_right + tan_left) / tan_width;
     let a32 = (tan_up + tan_down) / tan_height;
-    let a33 = far / (far - near);
+    let a33 = -far / (far - near);
 
-    let a43 = -(far * near) / (far - near);
+    let a43 = (far * near) / (far - near);
 
     Matrix4::new(
         a11, 0.0, a31, 0.0, //
-        0.0, -a22, a32, 0.0, //
+        0.0, a22, a32, 0.0, //
         0.0, 0.0, a33, a43, //
         0.0, 0.0, -1.0, 0.0, //
     )
