@@ -1,4 +1,7 @@
-use glutin::{event::{WindowEvent, ElementState, MouseButton, MouseScrollDelta}, dpi::PhysicalPosition};
+use glutin::{
+    dpi::PhysicalPosition,
+    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+};
 use nalgebra::{Matrix4, Point3, Vector3, Vector4};
 use std::f32::consts::FRAC_PI_2;
 
@@ -14,7 +17,6 @@ pub struct Camera {
     height: u32,
     left_is_clicked: bool,
     right_is_clicked: bool,
-
 }
 
 impl Camera {
@@ -49,7 +51,7 @@ impl Camera {
                 MouseButton::Left => {
                     self.left_is_clicked = *state == ElementState::Pressed;
                     true
-                },
+                }
                 MouseButton::Right => {
                     self.right_is_clicked = *state == ElementState::Pressed;
                     true
@@ -70,7 +72,7 @@ impl Camera {
                 self.height = size.height;
                 true
             }
-            _ => false
+            _ => false,
         }
     }
 }
@@ -127,8 +129,8 @@ impl ArcBall {
 
 impl ArcBallController {
     pub fn pivot(&mut self, arcball: &mut ArcBall, delta_x: f32, delta_y: f32) {
-        arcball.yaw += delta_x * self.swivel_sensitivity;
-        arcball.pitch += delta_y * self.swivel_sensitivity;
+        arcball.yaw -= delta_x * self.swivel_sensitivity;
+        arcball.pitch -= delta_y * self.swivel_sensitivity;
 
         arcball.pitch = arcball.pitch.clamp(-FRAC_PI_2, FRAC_PI_2);
     }
