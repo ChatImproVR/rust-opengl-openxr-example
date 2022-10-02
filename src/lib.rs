@@ -24,7 +24,7 @@ pub fn session_create_info<T>(
 
         Ok(SessionCreateInfo::Windows {
             h_dc: std::mem::transmute(h_dc),
-            h_glrc,
+            h_glrc: std::mem::transmute(h_glrc),
         })
     }
 

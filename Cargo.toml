@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-openxr = "0.16.0"
+openxr = "0.17.0"
 glutin = "0.29.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -18,7 +18,7 @@ windows-sys = { version = "0.42.0", features = ["Win32_Graphics_Gdi", "Win32_Fou
 glow = "0.11.2"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-openxr = { version = "0.16.0", features = ["loaded"] }
+openxr = { version = "0.17.0", features = ["loaded"] }
 
 [target.'cfg(target_os = "windows")'.dev-dependencies]
-openxr = { version = "0.16.0", features = ["static"] }
+openxr = { version = "0.17.0", features = ["static"] }
