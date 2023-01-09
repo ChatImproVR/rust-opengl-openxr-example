@@ -14,10 +14,10 @@
 * On Ubuntu: `sudo apt install libopenxr-loader1 libopenxr-dev`
 
 # Running
-* For VR: `cargo run --release -- vr` 
-* For desktop: `cargo run --release` 
+`cargo run --release --example triangle`
+Run with the `--vr` flag to use OpenXR
 
 # TODO
-- [x] Create a library abstracting away the platform-dependent parts of this (`library` branch)
+- [x] Create a library abstracting away the platform-dependent parts of this
 - [ ] Use multiview rendering
 - [ ] Display a floating cube (on a new branch `cube`)
