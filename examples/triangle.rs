@@ -313,12 +313,7 @@ unsafe fn vr_main() -> Result<()> {
 
             // Set the texture as the render target
             let texture = swapchain_images[view_idx][xr_swapchain_img_idx as usize];
-            let texture = std::num::NonZeroU32::new(texture).unwrap();
-
-            /// Workaround for glow having not released https://github.com/grovesNL/glow/issues/210
-            pub struct NativeTextureFuckery(pub std::num::NonZeroU32);
-
-            let texture: glow::NativeTexture = std::mem::transmute(NativeTextureFuckery(texture));
+            let texture = unsafe { gl::Context::create_texture_from_gl_name(texture) };
 
             gl.framebuffer_texture_2d(
                 gl::FRAMEBUFFER,
